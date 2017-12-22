@@ -494,28 +494,28 @@ public class NetworkAudioSource : NetworkBehaviour
 
 
   /// <summary>
-  /// Adds a linked audioSource that plays sounds like this one, but with a dampening factor. Can only be called on the server.
+  /// Adds a linked audioSource that plays sounds like this one, but with a damping factor. Can only be called on the server.
   /// </summary>
   /// <param name="audioSource">audioSource that should be linked</param>
-  /// <param name="dampeningFactor">dampening when passing sounds. 1f = no dampening, 0f = silence</param>
+  /// <param name="dampingFactor">damping when passing sounds. 1f = no damping, 0f = silence</param>
   /// <param name="bidirectionalLink"></param>
   [Server]
-  public void AddLinkedSource(NetworkAudioSource audioSource, float dampeningFactor, bool bidirectionalLink = false)
+  public void AddLinkedSource(NetworkAudioSource audioSource, float dampingFactor, bool bidirectionalLink = false)
   {
     if (bidirectionalLink)
     {
-      audioSource.AddLinkedSource(this, dampeningFactor, false);
+      audioSource.AddLinkedSource(this, dampingFactor, false);
     }
 
-    RpcAddLinkedSource(audioSource.myIdentifier, dampeningFactor);
+    RpcAddLinkedSource(audioSource.myIdentifier, dampingFactor);
   }
 
 
   [ClientRpc]
-  private void RpcAddLinkedSource(uint identifier, float dampeningFactor)
+  private void RpcAddLinkedSource(uint identifier, float dampingFactor)
   {
     Debug.Assert(identifier != 0, "NetworkAudioSource not initialised!");
-    LinkedAudioSources.Add(NetworkedAudioSources[identifier], dampeningFactor);
+    LinkedAudioSources.Add(NetworkedAudioSources[identifier], dampingFactor);
   }
 
 
@@ -562,7 +562,7 @@ public class NetworkAudioSource : NetworkBehaviour
       foreach (KeyValuePair<NetworkAudioSource, float> audioSourceVolumePair in targetAudioSource.LinkedAudioSources)
       {
         NetworkAudioSource audioSource = audioSourceVolumePair.Key;
-        float dampeningFactor = audioSourceVolumePair.Value;
+        float dampingFactor = audioSourceVolumePair.Value;
 
         switch (networkAudioSourceMessage.CallIdentifier)
         {
@@ -577,7 +577,7 @@ public class NetworkAudioSource : NetworkBehaviour
             break;
           case (byte)CallIdentifier.Play:
             ulong playDelay = BitConverter.ToUInt64(networkAudioSourceMessage.Payload, 0);
-            audioSource.SetVolume(originalVolume * dampeningFactor, true);
+            audioSource.SetVolume(originalVolume * dampingFactor, true);
             audioSource.NetworkedAudioSource.Play(playDelay);
             break;
           case (byte)CallIdentifier.PlayDelayed:
@@ -590,7 +590,7 @@ public class NetworkAudioSource : NetworkBehaviour
             break;
           case (byte)CallIdentifier.PlayOneShot:
             int clipUid = BitConverter.ToInt32(networkAudioSourceMessage.Payload, 0);
-            float volumeScale = BitConverter.ToSingle(networkAudioSourceMessage.Payload, 4) * dampeningFactor;
+            float volumeScale = BitConverter.ToSingle(networkAudioSourceMessage.Payload, 4) * dampingFactor;
             if (!IdToAudioClip.ContainsKey(clipUid))
             {
               Debug.Log("Clip not contained in NetworkAudioSource");
@@ -607,12 +607,12 @@ public class NetworkAudioSource : NetworkBehaviour
             break;
           case (byte)CallIdentifier.FadeOut:
             float fadeTime = BitConverter.ToSingle(networkAudioSourceMessage.Payload, 0);
-            audioSource.StartCoroutine(targetAudioSource.FadeOutRoutine(fadeTime, originalVolume * dampeningFactor));
+            audioSource.StartCoroutine(targetAudioSource.FadeOutRoutine(fadeTime, originalVolume * dampingFactor));
             break;
           case (byte)CallIdentifier.FadeIn:
             float targetVol = BitConverter.ToSingle(networkAudioSourceMessage.Payload, 0);
             float fadeInTime = BitConverter.ToSingle(networkAudioSourceMessage.Payload, 4);
-            audioSource.StartCoroutine(targetAudioSource.FadeInRoutine(targetVol, fadeInTime, originalVolume * dampeningFactor));
+            audioSource.StartCoroutine(targetAudioSource.FadeInRoutine(targetVol, fadeInTime, originalVolume * dampingFactor));
             break;
           case (byte)CallIdentifier.Clip:
             int clipId = BitConverter.ToInt32(networkAudioSourceMessage.Payload, 0);

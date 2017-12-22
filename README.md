@@ -4,7 +4,7 @@ The Network AudioSource allows for easy and fast synchronisation of AudioSources
 It additionally supports the features
 - FadeIn and FadeOut, which allow for linear fading of a currently played AudioClip.
 - Selecting random clips in a loop
-- Linking NetworkAudioSources for complex AudioSource chains, excellent when transferring dampened sound in complex separated 2D rooms on a single scene
+- Linking NetworkAudioSources for complex AudioSource chains, excellent when transferring damped sound in complex separated 2D rooms on a single scene
 
 Prerequisites
 Every AudioClip must have a unique name.

@@ -607,12 +607,12 @@ public class NetworkAudioSource : NetworkBehaviour
             break;
           case (byte)CallIdentifier.FadeOut:
             float fadeTime = BitConverter.ToSingle(networkAudioSourceMessage.Payload, 0);
-            audioSource.StartCoroutine(targetAudioSource.FadeOutRoutine(fadeTime, originalVolume * dampingFactor));
+            audioSource.StartCoroutine(audioSource.FadeOutRoutine(fadeTime, originalVolume * dampingFactor));
             break;
           case (byte)CallIdentifier.FadeIn:
             float targetVol = BitConverter.ToSingle(networkAudioSourceMessage.Payload, 0);
             float fadeInTime = BitConverter.ToSingle(networkAudioSourceMessage.Payload, 4);
-            audioSource.StartCoroutine(targetAudioSource.FadeInRoutine(targetVol, fadeInTime, originalVolume * dampingFactor));
+            audioSource.StartCoroutine(audioSource.FadeInRoutine(targetVol, fadeInTime, originalVolume * dampingFactor));
             break;
           case (byte)CallIdentifier.Clip:
             int clipId = BitConverter.ToInt32(networkAudioSourceMessage.Payload, 0);

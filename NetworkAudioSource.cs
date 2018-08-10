@@ -19,19 +19,13 @@ public class NetworkAudioSource : NetworkBehaviour
   /// </summary>
   private static readonly short NetworkAudioSourceMessageIdentifier = 50;
 
-  /// <summary>
-  /// Set this to the path within Resources/ that contains the clips
-  /// </summary>
-  private static readonly string AudioPath = "Audio/Sounds/";
-
   private static Dictionary<uint, NetworkAudioSource> NetworkedAudioSources;
   private static Dictionary<int, AudioClip> IdToAudioClip;
   private static Dictionary<AudioClip, int> AudioClipToId;
-  private static bool initialised = false;
   private uint myIdentifier;
 
   private Coroutine loopCoroutine;
-  private Dictionary<NetworkAudioSource, float> LinkedAudioSources;
+  private List<Tuple<NetworkAudioSource, float>> LinkedAudioSources;
   private float originalVolume;
 
   /// <summary>
@@ -73,7 +67,6 @@ public class NetworkAudioSource : NetworkBehaviour
     }
   }
 
-
   /// <summary>
   /// Sets the Doppler scale for this AudioSource.
   /// </summary>
@@ -92,7 +85,6 @@ public class NetworkAudioSource : NetworkBehaviour
       Send(message);
     }
   }
-
 
   /// <summary>
   /// Allows AudioSource to play even though AudioListener.pause is set to true. 
@@ -226,7 +218,35 @@ public class NetworkAudioSource : NetworkBehaviour
     }
   }
 
+  public static void Initialise(List<AudioClip> clips)
+  {
+    NetworkedAudioSources = new Dictionary<uint, NetworkAudioSource>();
+    clips.Sort(delegate (AudioClip x, AudioClip y)
+    {
+      if (x.GetHashCode() > y.GetHashCode())
+      {
+        return 1;
+      }
+      else
+      {
+        return -1;
+      }
+    });
 
+    IdToAudioClip = new Dictionary<int, AudioClip>();
+    AudioClipToId = new Dictionary<AudioClip, int>();
+
+    foreach (AudioClip audioClip in clips)
+    {
+      Debug.Assert(!AudioClipToId.ContainsKey(audioClip), "Hash Collision! You can fix this by renaming the audioclip with name " + audioClip.name);
+
+      IdToAudioClip.Add(audioClip.name.GetHashCode(), audioClip);
+      AudioClipToId.Add(audioClip, audioClip.name.GetHashCode());
+    }
+
+    NetworkServer.RegisterHandler(NetworkAudioSourceMessageIdentifier, (msg) => OnReceiveNetworkAudioSourceMessage(msg, true));
+    NetworkManager.singleton.client.RegisterHandler(NetworkAudioSourceMessageIdentifier, (msg) => OnReceiveNetworkAudioSourceMessage(msg, false));
+  }
 
   protected void Start()
   {
@@ -236,47 +256,13 @@ public class NetworkAudioSource : NetworkBehaviour
       return;
     }
 
-    Debug.Assert(NetworkAudioSourceMessageIdentifier > MsgType.Highest, "NetworkAudioSourceMessageIdentifier must be higher than internal range!");
-
-
-    if (!initialised)
-    {
-      initialised = true;
-      NetworkedAudioSources = new Dictionary<uint, NetworkAudioSource>();
-      List<AudioClip> clips = Resources.LoadAll<AudioClip>(AudioPath).ToList();
-      clips.Sort(delegate (AudioClip x, AudioClip y)
-      {
-        if (x.GetHashCode() > y.GetHashCode())
-        {
-          return 1;
-        }
-        else
-        {
-          return -1;
-        }
-      });
-
-      IdToAudioClip = new Dictionary<int, AudioClip>();
-      AudioClipToId = new Dictionary<AudioClip, int>();
-
-      foreach (AudioClip audioClip in clips)
-      {
-        Debug.Assert(!AudioClipToId.ContainsKey(audioClip), "Hash Collision! You can fix this by renaming the audioclip with name " + audioClip.name);
-
-        IdToAudioClip.Add(audioClip.name.GetHashCode(), audioClip);
-        AudioClipToId.Add(audioClip, audioClip.name.GetHashCode());
-      }
-
-      NetworkServer.RegisterHandler(NetworkAudioSourceMessageIdentifier, OnReceiveNetworkAudioSourceMessage);
-      NetworkManager.singleton.client.RegisterHandler(NetworkAudioSourceMessageIdentifier, OnReceiveNetworkAudioSourceMessage);
-    }
-
+    Debug.Assert(NetworkAudioSourceMessageIdentifier > MsgType.Highest, "NetworkAudioSourceMessageIdentifier must be higher than internal range!");    
 
     myIdentifier = GetComponent<NetworkIdentity>().netId.Value;
     NetworkedAudioSources.Add(myIdentifier, this);
 
-    LinkedAudioSources = new Dictionary<NetworkAudioSource, float>();
-    LinkedAudioSources.Add(this, 1f);
+    LinkedAudioSources = new List<Tuple<NetworkAudioSource, float>>();
+    LinkedAudioSources.Add(new Tuple<NetworkAudioSource, float>(this, 1f));
 
     originalVolume = Volume;
   }
@@ -487,8 +473,8 @@ public class NetworkAudioSource : NetworkBehaviour
   {
     while(true)
     {
-      PlayOneShot(clips[Random.Range(0, clips.Length)]);
-      yield return new WaitForSeconds(Random.Range(minTime, maxTime));
+      PlayOneShot(clips[GlobalVars.Random.Next(0, clips.Length)]);
+      yield return new WaitForSeconds(GlobalVars.GetNextFloat(minTime, maxTime));
     }
   }
 
@@ -515,7 +501,8 @@ public class NetworkAudioSource : NetworkBehaviour
   private void RpcAddLinkedSource(uint identifier, float dampingFactor)
   {
     Debug.Assert(identifier != 0, "NetworkAudioSource not initialised!");
-    LinkedAudioSources.Add(NetworkedAudioSources[identifier], dampingFactor);
+    Debug.Assert(LinkedAudioSources.Select(x => x.Item1).Count() == LinkedAudioSources.Select(x => x.Item1).Distinct().Count(), "AudioSource was already added!");
+    LinkedAudioSources.Add(new Tuple<NetworkAudioSource, float>(NetworkedAudioSources[identifier], dampingFactor));
   }
 
 
@@ -536,7 +523,7 @@ public class NetworkAudioSource : NetworkBehaviour
 
   private void Send(NetworkAudioSourceMessage message)
   {
-    if (Network.isServer)
+    if (isServer)
     {
       NetworkServer.SendToAll(NetworkAudioSourceMessageIdentifier, message);
     }
@@ -547,7 +534,7 @@ public class NetworkAudioSource : NetworkBehaviour
   }
 
 
-  private void OnReceiveNetworkAudioSourceMessage(NetworkMessage message)
+  private static void OnReceiveNetworkAudioSourceMessage(NetworkMessage message, bool isServer)
   {
     NetworkAudioSourceMessage networkAudioSourceMessage = message.ReadMessage<NetworkAudioSourceMessage>();
 
@@ -557,12 +544,18 @@ public class NetworkAudioSource : NetworkBehaviour
     }
     else
     {
+      if(!NetworkedAudioSources.ContainsKey(networkAudioSourceMessage.NetworkAudioSourceIdentifier))
+      {
+        Debug.Log($"{networkAudioSourceMessage.NetworkAudioSourceIdentifier} not found, maybe game has not finished initialising.");
+        return;
+      }
+
       NetworkAudioSource targetAudioSource = NetworkedAudioSources[networkAudioSourceMessage.NetworkAudioSourceIdentifier];
 
-      foreach (KeyValuePair<NetworkAudioSource, float> audioSourceVolumePair in targetAudioSource.LinkedAudioSources)
+      foreach (Tuple<NetworkAudioSource, float> audioSourceVolumePair in targetAudioSource.LinkedAudioSources)
       {
-        NetworkAudioSource audioSource = audioSourceVolumePair.Key;
-        float dampingFactor = audioSourceVolumePair.Value;
+        NetworkAudioSource audioSource = audioSourceVolumePair.Item1;
+        float dampingFactor = audioSourceVolumePair.Item2;
 
         switch (networkAudioSourceMessage.CallIdentifier)
         {
@@ -577,7 +570,7 @@ public class NetworkAudioSource : NetworkBehaviour
             break;
           case (byte)CallIdentifier.Play:
             ulong playDelay = BitConverter.ToUInt64(networkAudioSourceMessage.Payload, 0);
-            audioSource.SetVolume(originalVolume * dampingFactor, true);
+            audioSource.SetVolume(audioSource.originalVolume * dampingFactor, true);
             audioSource.NetworkedAudioSource.Play(playDelay);
             break;
           case (byte)CallIdentifier.PlayDelayed:
@@ -607,12 +600,12 @@ public class NetworkAudioSource : NetworkBehaviour
             break;
           case (byte)CallIdentifier.FadeOut:
             float fadeTime = BitConverter.ToSingle(networkAudioSourceMessage.Payload, 0);
-            audioSource.StartCoroutine(audioSource.FadeOutRoutine(fadeTime, originalVolume * dampingFactor));
+            audioSource.StartCoroutine(audioSource.FadeOutRoutine(fadeTime, audioSource.originalVolume * dampingFactor));
             break;
           case (byte)CallIdentifier.FadeIn:
             float targetVol = BitConverter.ToSingle(networkAudioSourceMessage.Payload, 0);
             float fadeInTime = BitConverter.ToSingle(networkAudioSourceMessage.Payload, 4);
-            audioSource.StartCoroutine(audioSource.FadeInRoutine(targetVol, fadeInTime, originalVolume * dampingFactor));
+            audioSource.StartCoroutine(audioSource.FadeInRoutine(targetVol, fadeInTime, audioSource.originalVolume * dampingFactor));
             break;
           case (byte)CallIdentifier.Clip:
             int clipId = BitConverter.ToInt32(networkAudioSourceMessage.Payload, 0);
